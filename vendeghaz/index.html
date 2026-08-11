@@ -533,6 +533,10 @@
   }
 
 </style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/airbnb.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/hu.js"></script>
 </head>
 <body>
 
@@ -681,11 +685,11 @@
       <div class="form-row">
         <div class="form-group">
           <label id="label-erkezes">Érkezés</label>
-          <input type="date" name="erkezes" required>
+          <input type="text" name="erkezes" id="erkezes-input" placeholder="Érkezés dátuma" required autocomplete="off" style="cursor:pointer;">
         </div>
         <div class="form-group">
           <label id="label-tavozas">Távozás</label>
-          <input type="date" name="tavozas" required>
+          <input type="text" name="tavozas" id="tavozas-input" placeholder="Távozás dátuma" required autocomplete="off" style="cursor:pointer;">
         </div>
       </div>
       <div class="form-row">
@@ -1491,31 +1495,18 @@ const ICAL_URLS = {
 let bookedDates = { vendeghaz: [], nyaralo: [] };
 
 async function fetchBookedDates(property) {
-  const icalUrl = encodeURIComponent(ICAL_URLS[property]);
-  const proxies = [
-    'https://corsproxy.io/?' + icalUrl,
-    'https://api.codetabs.com/v1/proxy?quest=' + icalUrl,
-    'https://api.allorigins.win/raw?url=' + icalUrl,
-  ];
-  
-  for (const url of proxies) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(url, {signal: controller.signal});
-      clearTimeout(timeout);
-      if (res.ok) {
-        const text = await res.text();
-        if (text.includes('VCALENDAR')) {
-          console.log('iCal fetched via:', url);
-          return parseIcal(text);
-        }
+  try {
+    const res = await fetch('/.netlify/functions/ical?property=' + property);
+    if (res.ok) {
+      const text = await res.text();
+      if (text.includes('VCALENDAR')) {
+        console.log('iCal fetched for', property, '- dates found');
+        return parseIcal(text);
       }
-    } catch(e) {
-      console.log('Proxy failed:', url, e.message);
     }
+  } catch(e) {
+    console.log('iCal fetch failed:', e.message);
   }
-  console.log('All proxies failed for', property);
   return [];
 }
 
@@ -1617,6 +1608,118 @@ window.addEventListener('load', async () => {
   console.log('Vendégház booked dates:', bookedDates.vendeghaz.length);
   console.log('Nyaraló booked dates:', bookedDates.nyaralo.length);
 });
+</script>
+
+
+<script>
+// Flatpickr naptár iCal szinkronnal
+let bookedDatesVH = [];
+let bookedDatesNY = [];
+let fpErkezes = null;
+let fpTavozas = null;
+
+async function loadBookedDates() {
+  try {
+    const [vhRes, nyRes] = await Promise.all([
+      fetch('/.netlify/functions/ical?property=vendeghaz'),
+      fetch('/.netlify/functions/ical?property=nyaralo')
+    ]);
+    if (vhRes.ok) bookedDatesVH = parseIcalDates(await vhRes.text());
+    if (nyRes.ok) bookedDatesNY = parseIcalDates(await nyRes.text());
+    console.log('VH foglalt napok:', bookedDatesVH.length);
+    console.log('NY foglalt napok:', bookedDatesNY.length);
+    initFlatpickr();
+  } catch(e) {
+    console.log('iCal hiba:', e);
+    initFlatpickr();
+  }
+}
+
+function parseIcalDates(text) {
+  const dates = [];
+  const events = text.split('BEGIN:VEVENT');
+  events.shift();
+  for (const event of events) {
+    const dtstart = event.match(/DTSTART[^:]*:(\d{8})/);
+    const dtend = event.match(/DTEND[^:]*:(\d{8})/);
+    if (dtstart && dtend) {
+      const start = parseIcalDate(dtstart[1]);
+      const end = parseIcalDate(dtend[1]);
+      const current = new Date(start);
+      while (current < end) {
+        dates.push(current.toISOString().split('T')[0]);
+        current.setDate(current.getDate() + 1);
+      }
+    }
+  }
+  return dates;
+}
+
+function parseIcalDate(str) {
+  return new Date(
+    parseInt(str.substr(0,4)),
+    parseInt(str.substr(4,2)) - 1,
+    parseInt(str.substr(6,2))
+  );
+}
+
+function getCurrentBookedDates() {
+  const sel = document.querySelector('select[name="vendeghaz"]');
+  if (!sel) return bookedDatesVH;
+  return sel.value === 'nyaralo' ? bookedDatesNY : bookedDatesVH;
+}
+
+function initFlatpickr() {
+  const commonConfig = {
+    dateFormat: 'Y-m-d',
+    minDate: 'today',
+    locale: 'hu',
+    disableMobile: true,
+    disable: [
+      function(date) {
+        const dateStr = date.toISOString().split('T')[0];
+        return getCurrentBookedDates().includes(dateStr);
+      }
+    ],
+    onDayCreate: function(dObj, dStr, fp, dayElem) {
+      const dateStr = dayElem.dateObj.toISOString().split('T')[0];
+      if (getCurrentBookedDates().includes(dateStr)) {
+        dayElem.style.background = '#ffebeb';
+        dayElem.style.color = '#ccc';
+        dayElem.title = 'Foglalt';
+      }
+    }
+  };
+
+  fpErkezes = flatpickr('#erkezes-input', {
+    ...commonConfig,
+    onChange: function(selectedDates) {
+      if (selectedDates[0] && fpTavozas) {
+        fpTavozas.set('minDate', selectedDates[0]);
+      }
+    }
+  });
+
+  fpTavozas = flatpickr('#tavozas-input', {
+    ...commonConfig,
+    onChange: function(selectedDates) {
+      if (selectedDates[0] && fpErkezes) {
+        fpErkezes.set('maxDate', selectedDates[0]);
+      }
+    }
+  });
+
+  // Frissítés ha házat vált
+  const sel = document.querySelector('select[name="vendeghaz"]');
+  if (sel) {
+    sel.addEventListener('change', () => {
+      if (fpErkezes) fpErkezes.redraw();
+      if (fpTavozas) fpTavozas.redraw();
+    });
+  }
+}
+
+window.addEventListener('load', loadBookedDates);
 </script>
 
 </body>
