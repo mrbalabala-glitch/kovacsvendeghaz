@@ -1640,6 +1640,7 @@ function parseIcalDates(text) {
   const events = text.split('BEGIN:VEVENT');
   events.shift();
   for (const event of events) {
+    // Match DTSTART with or without time component
     const dtstart = event.match(/DTSTART[^:]*:(\d{8})/);
     const dtend = event.match(/DTEND[^:]*:(\d{8})/);
     if (dtstart && dtend) {
@@ -1649,6 +1650,19 @@ function parseIcalDates(text) {
       while (current < end) {
         dates.push(current.toISOString().split('T')[0]);
         current.setDate(current.getDate() + 1);
+      }
+    } else {
+      // Try datetime format DTSTART:20241001T000000Z
+      const dtstartDT = event.match(/DTSTART[^:]*:(\d{8})T/);
+      const dtendDT = event.match(/DTEND[^:]*:(\d{8})T/);
+      if (dtstartDT && dtendDT) {
+        const start = parseIcalDate(dtstartDT[1]);
+        const end = parseIcalDate(dtendDT[1]);
+        const current = new Date(start);
+        while (current < end) {
+          dates.push(current.toISOString().split('T')[0]);
+          current.setDate(current.getDate() + 1);
+        }
       }
     }
   }
