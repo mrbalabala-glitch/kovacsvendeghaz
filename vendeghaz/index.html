@@ -1759,7 +1759,16 @@ function initFlatpickr() {
   }
 }
 
-window.addEventListener('load', loadBookedDates);
+window.addEventListener('load', () => {
+  loadBookedDates();
+  // Set Hungarian placeholders on initial load
+  const emailInput = document.getElementById('email-input');
+  if (emailInput) emailInput.placeholder = 'email@pelda.hu';
+  const nevInput = document.getElementById('nev-input');
+  if (nevInput) nevInput.placeholder = 'Kovács Anna';
+  const telInput = document.getElementById('telefon-input');
+  if (telInput) telInput.placeholder = '+36 20 …';
+});
 </script>
 
 </body>
